@@ -5,6 +5,18 @@ import './App.css';
 // Connect to backend
 const socket = io('http://localhost:3001');
 
+socket.on('connect', () => {
+  console.log('Connected to backend!', socket.id);
+});
+
+socket.on('disconnect', () => {
+  console.log('Disconnected from backend');
+});
+
+socket.on('connect_error', (error) => {
+  console.log('Connection failed:', error);
+});
+
 function App() {
   const [code, setCode] = useState('// Welcome to CodePulse! Start coding together...\n');
 

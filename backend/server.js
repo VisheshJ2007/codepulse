@@ -41,6 +41,26 @@ io.on('connection', (socket) => {
   });
 });
 
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+  
+  // Send current code to new user
+  socket.emit('code-update', sharedCode);
+  
+  // Listen for code changes
+  socket.on('code-change', (newCode) => {
+    console.log('Received code change from', socket.id, 'Length:', newCode.length);
+    sharedCode = newCode;
+    // Send to all other users
+    socket.broadcast.emit('code-update', newCode);
+    console.log('Broadcasted to other users');
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
 // Start server
 const PORT = 3001;
 server.listen(PORT, () => {
