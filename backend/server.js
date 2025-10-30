@@ -1,4 +1,3 @@
-
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -19,7 +18,7 @@ const io = socketIo(server, {
 
 // MongoDB Atlas setup
 // Replace <db_password> with your actual password or use an environment variable for security
-const MONGO_URL = 'mongodb+srv://visheshj207_db_user:Vi$he$h123@cluster0.rwm1n2z.mongodb.net/?appName=Cluster0';
+const MONGO_URL = 'mongodb+srv://visheshj207_db_user:3RiC2vv4SuA4APv3@cluster0.rwm1n2z.mongodb.net/?appName=Cluster0';
 const DB_NAME = 'codesync';
 const COLLECTION = 'code';
 const DOC_ID = 'shared_code';
@@ -53,6 +52,7 @@ async function saveCode(code) {
   );
 }
 
+
 io.on('connection', async (socket) => {
   // Send current code to new user
   const currentCode = await loadCode();
@@ -61,7 +61,8 @@ io.on('connection', async (socket) => {
   // Listen for code changes
   socket.on('code-change', async (newCode) => {
     await saveCode(newCode);
-    socket.broadcast.emit('code-update', newCode);
+    // Emit to all clients, including sender, for full sync
+    io.emit('code-update', newCode);
   });
 
   socket.on('disconnect', () => {

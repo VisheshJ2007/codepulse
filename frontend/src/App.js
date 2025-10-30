@@ -2,22 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import './App.css';
 
-const socket = io('http://localhost:3001');
 
 function App() {
   const [code, setCode] = useState('// Welcome to CodeSync! Start coding together...\n');
   const [isSynced, setIsSynced] = useState(true);
   const codeRef = useRef(code);
+  const socketRef = useRef();
 
   useEffect(() => {
-    socket.on('code-update', (newCode) => {
+    // Create socket only once
+    socketRef.current = io('http://localhost:3001');
+
+    socketRef.current.on('code-update', (newCode) => {
       setCode(newCode);
       codeRef.current = newCode;
       setIsSynced(true);
     });
 
     return () => {
-      socket.disconnect();
+      socketRef.current.disconnect();
     };
   }, []);
 
@@ -25,7 +28,9 @@ function App() {
     const newCode = event.target.value;
     setCode(newCode);
     setIsSynced(false);
-    socket.emit('code-change', newCode);
+    if (socketRef.current) {
+      socketRef.current.emit('code-change', newCode);
+    }
   };
 
   return (
