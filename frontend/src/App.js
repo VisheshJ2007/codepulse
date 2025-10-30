@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
 import io from 'socket.io-client';
+import './App.css';
 
 function App() {
   const [code, setCode] = useState('print("Welcome to CodeSync")\nprint("Try running this code!")');
@@ -8,8 +10,10 @@ function App() {
   const [input, setInput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [isSynced, setIsSynced] = useState(true);
-  const codeRef = useRef(code);
+  const [isEditorReady, setIsEditorReady] = useState(false);
+  const editorRef = useRef(null);
   const socketRef = useRef();
+  const codeRef = useRef(code);
 
   useEffect(() => {
     socketRef.current = io('http://localhost:3001');
@@ -25,17 +29,28 @@ function App() {
     };
   }, []);
 
-  const handleCodeChange = (event) => {
-    const newCode = event.target.value;
-    setCode(newCode);
-    setIsSynced(false);
-    if (socketRef.current) {
-      socketRef.current.emit('code-change', newCode);
+  function handleEditorDidMount(editor, monaco) {
+    editorRef.current = editor;
+    setIsEditorReady(true);
+  }
+
+  function handleEditorChange(value) {
+    if (value !== codeRef.current) {
+      setCode(value);
+      codeRef.current = value;
+      setIsSynced(false);
+      if (socketRef.current) {
+        socketRef.current.emit('code-change', value);
+      }
     }
-  };
+  }
 
   const handleLanguageChange = (newLanguage) => {
     setLanguage(newLanguage);
+    // Update editor language when language changes
+    if (editorRef.current) {
+      // Monaco will automatically handle language switching
+    }
   };
 
   const executeCode = async () => {
@@ -64,9 +79,22 @@ function App() {
       javascript: "console.log('Hello, World!');",
       java: "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}",
       c: "#include <stdio.h>\n\nint main() {\n    printf(\"Hello, World!\");\n    return 0;\n}",
-      cpp: "#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << \"Hello, World!\" << endl;\n    return 0;\n}"
+      cpp: "#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << \"Hello, World!\" << endl;\n    return 0;\n}",
+      csharp: "using System;\n\nclass Program {\n    static void Main() {\n        Console.WriteLine(\"Hello, World!\");\n    }\n}",
+      php: "<?php\necho \"Hello, World!\\n\";\n?>",
+      ruby: "puts \"Hello, World!\"",
+      go: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"Hello, World!\")\n}",
+      rust: "fn main() {\n    println!(\"Hello, World!\");\n}"
     };
     return templates[lang] || "// Write your code here";
+  };
+
+  const resetTemplate = () => {
+    const template = getLanguageTemplate(language);
+    setCode(template);
+    if (socketRef.current) {
+      socketRef.current.emit('code-change', template);
+    }
   };
 
   return (
@@ -98,27 +126,21 @@ function App() {
         
         <button 
           onClick={executeCode} 
-          disabled={isRunning}
+          disabled={isRunning || !isEditorReady}
           style={{ 
             padding: '5px 15px', 
-            backgroundColor: isRunning ? '#ccc' : '#007acc',
+            backgroundColor: (isRunning || !isEditorReady) ? '#ccc' : '#007acc',
             color: 'white',
             border: 'none',
             borderRadius: '3px',
-            cursor: isRunning ? 'not-allowed' : 'pointer'
+            cursor: (isRunning || !isEditorReady) ? 'not-allowed' : 'pointer'
           }}
         >
           {isRunning ? 'Running...' : 'Run Code'}
         </button>
 
         <button 
-          onClick={() => {
-            const template = getLanguageTemplate(language);
-            setCode(template);
-            if (socketRef.current) {
-              socketRef.current.emit('code-change', template);
-            }
-          }}
+          onClick={resetTemplate}
           style={{ 
             padding: '5px 10px', 
             backgroundColor: '#f0f0f0',
@@ -129,31 +151,44 @@ function App() {
         >
           Reset Template
         </button>
+
+        <span style={{ fontSize: '12px', color: isSynced ? 'green' : 'orange', marginLeft: '10px' }}>
+          {isSynced ? 'Synced' : 'Syncing...'}
+        </span>
       </div>
 
       <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-        {/* Code Editor */}
+        {/* Monaco Code Editor */}
         <div style={{ flex: 1 }}>
           <div style={{ marginBottom: '5px' }}>
             <label>Code Editor: </label>
-            <span style={{ fontSize: '12px', color: isSynced ? 'green' : 'orange', marginLeft: '10px' }}>
-              {isSynced ? 'Synced' : 'Syncing...'}
-            </span>
           </div>
-          <textarea
-            value={code}
-            onChange={handleCodeChange}
-            style={{
-              width: '100%',
-              height: '400px',
-              fontFamily: '"Courier New", monospace',
-              fontSize: '14px',
-              padding: '10px',
-              border: '1px solid #ccc',
-              borderRadius: '5px',
-              resize: 'vertical'
-            }}
-          />
+          <div style={{ 
+            border: '1px solid #ccc', 
+            borderRadius: '5px',
+            overflow: 'hidden'
+          }}>
+            <Editor
+              height="400px"
+              language={language}
+              value={code}
+              onChange={handleEditorChange}
+              onMount={handleEditorDidMount}
+              theme="vs-dark"
+              options={{
+                minimap: { enabled: true },
+                fontSize: 14,
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                lineNumbers: 'on',
+                roundedSelection: false,
+                scrollbar: {
+                  vertical: 'visible',
+                  horizontal: 'visible'
+                }
+              }}
+            />
+          </div>
         </div>
 
         {/* Input/Output */}
@@ -182,7 +217,8 @@ function App() {
             <pre style={{ 
               width: '100%',
               height: '300px',
-              backgroundColor: '#f8f8f8',
+              backgroundColor: '#1e1e1e',
+              color: '#d4d4d4',
               border: '1px solid #ddd',
               padding: '10px',
               borderRadius: '5px',

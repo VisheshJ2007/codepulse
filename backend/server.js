@@ -20,7 +20,7 @@ const io = socketIo(server, {
 
 
 // MongoDB Atlas setup
-const MONGO_URL = 'mongodb+srv://visheshj207_db_user:3RiC2vv4SuA4APv3@cluster0.rwm1n2z.mongodb.net/?appName=Cluster0';
+const MONGO_URL = 'mongodb+srv://visheshj207_db_user:3RiC2vv4SuA4APv3@cluster0.rwm1n2z.mongodb.net/?tls=true&appName=Cluster0';
 const DB_NAME = 'codesync';
 const COLLECTION = 'code';
 const DOC_ID = 'shared_code';
