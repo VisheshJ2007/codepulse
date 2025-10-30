@@ -1,8 +1,9 @@
+
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
-const fs = require('fs');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 app.use(cors());
@@ -15,48 +16,55 @@ const io = socketIo(server, {
   }
 });
 
-const DATA_FILE = 'saved-code.txt';
 
-function loadCode() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      return fs.readFileSync(DATA_FILE, 'utf8');
-    }
-  } catch (error) {
-    console.log('Error loading file:', error);
-  }
-  return "// Welcome to CodeSync! Start coding together...\n";
+// MongoDB Atlas setup
+// Replace <db_password> with your actual password or use an environment variable for security
+const MONGO_URL = 'mongodb+srv://visheshj207_db_user:<db_password>@cluster0.rwm1n2z.mongodb.net/?appName=Cluster0';
+const DB_NAME = 'codesync';
+const COLLECTION = 'code';
+const DOC_ID = 'shared_code';
+
+let db, codeCollection;
+
+MongoClient.connect(MONGO_URL, { useUnifiedTopology: true })
+  .then(client => {
+    db = client.db(DB_NAME);
+    codeCollection = db.collection(COLLECTION);
+    server.listen(3001, () => {
+      console.log('Server running on http://localhost:3001');
+      console.log('Connected to MongoDB');
+    });
+  })
+  .catch(err => {
+    console.error('Failed to connect to MongoDB', err);
+    process.exit(1);
+  });
+
+async function loadCode() {
+  const doc = await codeCollection.findOne({ _id: DOC_ID });
+  return doc && doc.code ? doc.code : "// Welcome to CodeSync! Start coding together...\n";
 }
 
-function saveCode(code) {
-  try {
-    fs.writeFileSync(DATA_FILE, code);
-    // Optionally, you can add a timestamp or log here
-  } catch (error) {
-    console.log('Error saving file:', error);
-  }
+async function saveCode(code) {
+  await codeCollection.updateOne(
+    { _id: DOC_ID },
+    { $set: { code } },
+    { upsert: true }
+  );
 }
 
-let sharedCode = loadCode();
-
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   // Send current code to new user
-  socket.emit('code-update', sharedCode);
+  const currentCode = await loadCode();
+  socket.emit('code-update', currentCode);
 
   // Listen for code changes
-  socket.on('code-change', (newCode) => {
-    sharedCode = newCode;
-    saveCode(newCode);
+  socket.on('code-change', async (newCode) => {
+    await saveCode(newCode);
     socket.broadcast.emit('code-update', newCode);
   });
 
   socket.on('disconnect', () => {
     // User disconnected
   });
-});
-
-const PORT = 3001;
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:3001`);
-  console.log(`Using file storage: ${DATA_FILE}`);
 });
