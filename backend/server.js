@@ -2,21 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
-const mongoose = require('mongoose'); // ← ADDED
-
-// Connect to MongoDB (USE YOUR ACTUAL CONNECTION STRING)
-const MONGODB_URI = 'mongodb+srv://visheshj207_db_user:3RiC2vv4SuA4APv3@cluster0.xxxxx.mongodb.net/codepulse?retryWrites=true&w=majority';
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('✅ Connected to MongoDB'))
-  .catch(err => console.log('❌ MongoDB connection error:', err));
-
-// Create a simple document schema
-const documentSchema = new mongoose.Schema({
-  content: String,
-  lastUpdated: { type: Date, default: Date.now }
-});
-
-const Document = mongoose.model('Document', documentSchema);
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
@@ -29,59 +15,48 @@ const io = socketIo(server, {
   }
 });
 
-let sharedCode = "// Welcome to CodePulse! Start coding together...\n";
+const DATA_FILE = 'saved-code.txt';
 
-// Load document from database on startup
-async function loadDocument() {
+function loadCode() {
   try {
-    let doc = await Document.findOne();
-    if (!doc) {
-      // Create first document
-      doc = new Document({ content: sharedCode });
-      await doc.save();
+    if (fs.existsSync(DATA_FILE)) {
+      return fs.readFileSync(DATA_FILE, 'utf8');
     }
-    sharedCode = doc.content;
-    console.log('📄 Loaded document from database');
   } catch (error) {
-    console.log('❌ Error loading document:', error);
+    console.log('Error loading file:', error);
+  }
+  return "// Welcome to CodeSync! Start coding together...\n";
+}
+
+function saveCode(code) {
+  try {
+    fs.writeFileSync(DATA_FILE, code);
+    // Optionally, you can add a timestamp or log here
+  } catch (error) {
+    console.log('Error saving file:', error);
   }
 }
 
-loadDocument();
+let sharedCode = loadCode();
 
 io.on('connection', (socket) => {
-  console.log('✅ User connected:', socket.id);
-  
   // Send current code to new user
   socket.emit('code-update', sharedCode);
-  
+
   // Listen for code changes
-  socket.on('code-change', async (newCode) => {
-    console.log('📝 Received change from', socket.id);
+  socket.on('code-change', (newCode) => {
     sharedCode = newCode;
-    
-    // Save to database
-    try {
-      await Document.findOneAndUpdate(
-        {}, 
-        { content: newCode, lastUpdated: new Date() },
-        { upsert: true }
-      );
-      console.log('💾 Saved to database');
-    } catch (error) {
-      console.log('❌ Database save error:', error);
-    }
-    
-    // Send to other users
+    saveCode(newCode);
     socket.broadcast.emit('code-update', newCode);
   });
 
   socket.on('disconnect', () => {
-    console.log('❌ User disconnected:', socket.id);
+    // User disconnected
   });
 });
 
 const PORT = 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:3001`);
+  console.log(`Using file storage: ${DATA_FILE}`);
 });

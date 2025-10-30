@@ -5,26 +5,15 @@ import './App.css';
 const socket = io('http://localhost:3001');
 
 function App() {
-  const [code, setCode] = useState('// Welcome to CodePulse! Start coding together...\n');
-  const isTyping = useRef(false);
+  const [code, setCode] = useState('// Welcome to CodeSync! Start coding together...\n');
+  const [isSynced, setIsSynced] = useState(true);
+  const codeRef = useRef(code);
 
   useEffect(() => {
-    console.log('🔄 Setting up socket listeners...');
-    
-    // Listen for code updates from other users
     socket.on('code-update', (newCode) => {
-      console.log('📨 Received update from server:', newCode.length, 'chars');
-      if (!isTyping.current) {
-        setCode(newCode);
-      }
-    });
-
-    socket.on('connect', () => {
-      console.log('✅ Connected to backend!');
-    });
-
-    socket.on('disconnect', () => {
-      console.log('❌ Disconnected from backend');
+      setCode(newCode);
+      codeRef.current = newCode;
+      setIsSynced(true);
     });
 
     return () => {
@@ -34,31 +23,21 @@ function App() {
 
   const handleCodeChange = (event) => {
     const newCode = event.target.value;
-    
-    // Update local state immediately
     setCode(newCode);
-    
-    // Send to other users
-    isTyping.current = true;
+    setIsSynced(false);
     socket.emit('code-change', newCode);
-    
-    // Reset typing flag after a short delay
-    setTimeout(() => {
-      isTyping.current = false;
-    }, 100);
   };
 
   return (
     <div className="App" style={{ padding: '20px' }}>
-      <h1>CodePulse 🚀</h1>
+      <h1>CodeSync</h1>
       <p>Real-time collaborative code editor</p>
-      
-      <textarea 
+      <textarea
         value={code}
         onChange={handleCodeChange}
-        style={{ 
-          width: '90%', 
-          height: '500px', 
+        style={{
+          width: '90%',
+          height: '500px',
           fontFamily: 'monospace',
           fontSize: '14px',
           padding: '10px',
@@ -66,9 +45,11 @@ function App() {
           borderRadius: '5px'
         }}
       />
-      
       <div style={{ marginTop: '10px', color: '#666' }}>
-        💡 Open this page in another browser tab to test real-time collaboration!
+        {isSynced ? "All changes are synced." : "Syncing changes..."}
+      </div>
+      <div style={{ marginTop: '10px', color: '#888' }}>
+        Open this page in another browser tab or device to test real-time collaboration.
       </div>
     </div>
   );
