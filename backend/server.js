@@ -19,7 +19,7 @@ const io = socketIo(server, {
 
 // MongoDB Atlas setup
 // Replace <db_password> with your actual password or use an environment variable for security
-const MONGO_URL = 'mongodb+srv://visheshj207_db_user:<db_password>@cluster0.rwm1n2z.mongodb.net/?appName=Cluster0';
+const MONGO_URL = 'mongodb+srv://visheshj207_db_user:Vi$he$h123@cluster0.rwm1n2z.mongodb.net/?appName=Cluster0';
 const DB_NAME = 'codesync';
 const COLLECTION = 'code';
 const DOC_ID = 'shared_code';
