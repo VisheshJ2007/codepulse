@@ -1,49 +1,56 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import './App.css';
 
-// Connect to backend
 const socket = io('http://localhost:3001');
-
-socket.on('connect', () => {
-  console.log('Connected to backend!', socket.id);
-});
-
-socket.on('disconnect', () => {
-  console.log('Disconnected from backend');
-});
-
-socket.on('connect_error', (error) => {
-  console.log('Connection failed:', error);
-});
 
 function App() {
   const [code, setCode] = useState('// Welcome to CodePulse! Start coding together...\n');
+  const isTyping = useRef(false);
 
-  // Setup real-time listeners
   useEffect(() => {
+    console.log('🔄 Setting up socket listeners...');
+    
     // Listen for code updates from other users
     socket.on('code-update', (newCode) => {
-      setCode(newCode);
+      console.log('📨 Received update from server:', newCode.length, 'chars');
+      if (!isTyping.current) {
+        setCode(newCode);
+      }
     });
 
-    // Cleanup on component unmount
+    socket.on('connect', () => {
+      console.log('✅ Connected to backend!');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from backend');
+    });
+
     return () => {
       socket.disconnect();
     };
   }, []);
 
-  // Handle typing in editor
   const handleCodeChange = (event) => {
     const newCode = event.target.value;
+    
+    // Update local state immediately
     setCode(newCode);
-    // Send changes to all other users
+    
+    // Send to other users
+    isTyping.current = true;
     socket.emit('code-change', newCode);
+    
+    // Reset typing flag after a short delay
+    setTimeout(() => {
+      isTyping.current = false;
+    }, 100);
   };
 
   return (
     <div className="App" style={{ padding: '20px' }}>
-      <h1>CodePulse</h1>
+      <h1>CodePulse 🚀</h1>
       <p>Real-time collaborative code editor</p>
       
       <textarea 
@@ -58,7 +65,6 @@ function App() {
           border: '1px solid #ccc',
           borderRadius: '5px'
         }}
-        placeholder="Start coding with others in real-time..."
       />
       
       <div style={{ marginTop: '10px', color: '#666' }}>

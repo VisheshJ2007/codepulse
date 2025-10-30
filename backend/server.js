@@ -1,67 +1,40 @@
-// Import required modules
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 
-// Create Express app
 const app = express();
-app.use(cors()); // Allow frontend to connect
+app.use(cors());
 
-// Create HTTP server
 const server = http.createServer(app);
-
-// Setup Socket.IO for real-time communication
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000", // Your React app's address
+    origin: "http://localhost:3000",
     methods: ["GET", "POST"]
   }
 });
 
-// Store shared code
 let sharedCode = "// Welcome to CodePulse! Start coding together...\n";
 
-// Handle new connections
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
+  console.log('✅ User connected:', socket.id);
   
   // Send current code to new user
   socket.emit('code-update', sharedCode);
   
   // Listen for code changes
   socket.on('code-change', (newCode) => {
+    console.log('📝 Received change from', socket.id);
     sharedCode = newCode;
-    // Send to all other users
+    // Send to ALL other users (including sender for testing)
     socket.broadcast.emit('code-update', newCode);
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+    console.log('❌ User disconnected:', socket.id);
   });
 });
 
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-  
-  // Send current code to new user
-  socket.emit('code-update', sharedCode);
-  
-  // Listen for code changes
-  socket.on('code-change', (newCode) => {
-    console.log('Received code change from', socket.id, 'Length:', newCode.length);
-    sharedCode = newCode;
-    // Send to all other users
-    socket.broadcast.emit('code-update', newCode);
-    console.log('Broadcasted to other users');
-  });
-
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-});
-
-// Start server
 const PORT = 3001;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
