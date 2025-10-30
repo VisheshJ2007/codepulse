@@ -27,7 +27,7 @@ const DOC_ID = 'shared_code';
 
 
 // Judge0 API configuration
-const JUDGE0_URL = 'https://api.judge0.com';
+const JUDGE0_URL = 'https://ce.judge0.com';
 const LANGUAGE_MAP = {
   'python': 71,
   'javascript': 63,
