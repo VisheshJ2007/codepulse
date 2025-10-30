@@ -25,8 +25,21 @@ const DB_NAME = 'codesync';
 const COLLECTION = 'code';
 const DOC_ID = 'shared_code';
 
+
 // Judge0 API configuration
-// (already declared above)
+const JUDGE0_URL = 'https://api.judge0.com';
+const LANGUAGE_MAP = {
+  'python': 71,
+  'javascript': 63,
+  'java': 62,
+  'c': 50,
+  'cpp': 54,
+  'csharp': 51,
+  'php': 68,
+  'ruby': 72,
+  'go': 60,
+  'rust': 73
+};
 
 // Code execution function
 async function executeCode(language, code, input = '') {
