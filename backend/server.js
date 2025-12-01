@@ -17,8 +17,13 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
-// MongoDB connection
-const MONGODB_URI = 'mongodb+srv://visheshj207_db_user:3RiC2vv4SuA4APv3@cluster0.rwm1n2z.mongodb.net/?tls=true&appName=Cluster0';
+// MongoDB connection (URI must be provided via environment variable)
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  console.error('Missing MONGODB_URI environment variable');
+  process.exit(1);
+}
 
 mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
