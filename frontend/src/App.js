@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Editor from '@monaco-editor/react';
 import io from 'socket.io-client';
-import './App.css';
+import Editor from '@monaco-editor/react';
+
+// Reusable style for AI prompt chips
+const chipStyle = {
+  padding: '4px 10px',
+  backgroundColor: '#f3f4f6',
+  border: '1px solid #d1d5db',
+  borderRadius: '16px',
+  cursor: 'pointer'
+};
 
 function App() {
   const [code, setCode] = useState('print("Welcome to CodeSync")\nprint("Try running this code!")');
@@ -10,10 +18,17 @@ function App() {
   const [input, setInput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [isSynced, setIsSynced] = useState(true);
-  const [isEditorReady, setIsEditorReady] = useState(false);
-  const editorRef = useRef(null);
-  const socketRef = useRef();
+  const [aiPrompt, setAiPrompt] = useState('Explain the selected code');
+  const [aiResponse, setAiResponse] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiProvider, setAiProvider] = useState('');
+  const [persona, setPersona] = useState('Default');
+  const [lastJudge0, setLastJudge0] = useState(null);
+  const [inlineLoading, setInlineLoading] = useState(false);
   const codeRef = useRef(code);
+  const socketRef = useRef();
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
 
   useEffect(() => {
     socketRef.current = io('http://localhost:3001');
@@ -29,28 +44,91 @@ function App() {
     };
   }, []);
 
-  function handleEditorDidMount(editor, monaco) {
-    editorRef.current = editor;
-    setIsEditorReady(true);
-  }
-
-  function handleEditorChange(value) {
-    if (value !== codeRef.current) {
-      setCode(value);
-      codeRef.current = value;
-      setIsSynced(false);
-      if (socketRef.current) {
-        socketRef.current.emit('code-change', value);
-      }
+  // Monaco Editor onChange provides the updated value directly (not an event)
+  const handleCodeChange = (value) => {
+    const newCode = value ?? '';
+    setCode(newCode);
+    setIsSynced(false);
+    if (socketRef.current) {
+      socketRef.current.emit('code-change', newCode);
     }
-  }
+  };
+
+  const handleEditorMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+
+    // Optional: simple snippet completions to give a unique feel
+    const snippets = {
+      python: [
+        { label: 'for-range', insertText: 'for i in range(0, 10):\n    print(i)' },
+        { label: 'main-guard', insertText: "if __name__ == '__main__':\n    main()" }
+      ],
+      javascript: [
+        { label: 'log', insertText: "console.log('Hello, World!');" },
+        { label: 'async-func', insertText: 'async function main() {\n  try {\n    \n  } catch (e) {\n    console.error(e);\n  }\n}\nmain();' }
+      ],
+      c: [
+        { label: 'printf', insertText: 'printf("%s\\n", "Hello, World!");' }
+      ],
+      cpp: [
+        { label: 'cout', insertText: 'std::cout << "Hello, World!" << std::endl;' }
+      ],
+      java: [
+        { label: 'println', insertText: 'System.out.println("Hello, World!");' }
+      ]
+    };
+
+    monaco.languages.registerCompletionItemProvider(language, {
+      provideCompletionItems: () => {
+        const items = (snippets[language] || []).map(s => ({
+          label: s.label,
+          kind: monaco.languages.CompletionItemKind.Snippet,
+          insertText: s.insertText
+        }));
+        return { suggestions: items };
+      }
+    });
+  };
+
+  const insertAtCursor = (text) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = editor.getSelection();
+    editor.executeEdits('ai-inline', [{ range: selection, text, forceMoveMarkers: true }]);
+    editor.focus();
+    // propagate change to collaborators
+    const newCode = editor.getValue();
+    setCode(newCode);
+    setIsSynced(false);
+    if (socketRef.current) socketRef.current.emit('code-change', newCode);
+  };
+
+  const requestInlineSuggest = async () => {
+    try {
+      setInlineLoading(true);
+      const editor = editorRef.current;
+      if (!editor) return;
+      const model = editor.getModel();
+      const pos = editor.getPosition();
+      const offset = model.getOffsetAt(pos);
+      const resp = await fetch('http://localhost:3001/api/ai/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language, code: model.getValue(), cursorOffset: offset, prompt: 'Continue the code.' })
+      });
+      const data = await resp.json();
+      const completion = data.completion || '';
+      if (completion.trim()) insertAtCursor(completion);
+    } catch (e) {
+      console.error('Inline suggest failed:', e);
+    } finally {
+      setInlineLoading(false);
+    }
+  };
 
   const handleLanguageChange = (newLanguage) => {
     setLanguage(newLanguage);
-    // Update editor language when language changes
-    if (editorRef.current) {
-      // Monaco will automatically handle language switching
-    }
   };
 
   const executeCode = async () => {
@@ -64,8 +142,16 @@ function App() {
         body: JSON.stringify({ language, code, input })
       });
       
-      const result = await response.json();
-      setOutput(result.output || 'No output');
+  const result = await response.json();
+  setLastJudge0(result);
+      // Show all possible outputs from Judge0
+      let fullOutput = '';
+      if (result.output) fullOutput += result.output;
+      if (result.error) fullOutput += '\n[stderr]\n' + result.error;
+      if (result.compile_output) fullOutput += '\n[compile_output]\n' + result.compile_output;
+      if (result.message) fullOutput += '\n[message]\n' + result.message;
+      if (!fullOutput.trim()) fullOutput = 'No output';
+      setOutput(fullOutput);
     } catch (error) {
       setOutput('Execution failed: ' + error.message);
     }
@@ -79,22 +165,9 @@ function App() {
       javascript: "console.log('Hello, World!');",
       java: "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}",
       c: "#include <stdio.h>\n\nint main() {\n    printf(\"Hello, World!\");\n    return 0;\n}",
-      cpp: "#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << \"Hello, World!\" << endl;\n    return 0;\n}",
-      csharp: "using System;\n\nclass Program {\n    static void Main() {\n        Console.WriteLine(\"Hello, World!\");\n    }\n}",
-      php: "<?php\necho \"Hello, World!\\n\";\n?>",
-      ruby: "puts \"Hello, World!\"",
-      go: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"Hello, World!\")\n}",
-      rust: "fn main() {\n    println!(\"Hello, World!\");\n}"
+      cpp: "#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << \"Hello, World!\" << endl;\n    return 0;\n}"
     };
     return templates[lang] || "// Write your code here";
-  };
-
-  const resetTemplate = () => {
-    const template = getLanguageTemplate(language);
-    setCode(template);
-    if (socketRef.current) {
-      socketRef.current.emit('code-change', template);
-    }
   };
 
   return (
@@ -126,21 +199,56 @@ function App() {
         
         <button 
           onClick={executeCode} 
-          disabled={isRunning || !isEditorReady}
+          disabled={isRunning}
           style={{ 
             padding: '5px 15px', 
-            backgroundColor: (isRunning || !isEditorReady) ? '#ccc' : '#007acc',
+            backgroundColor: isRunning ? '#ccc' : '#007acc',
             color: 'white',
             border: 'none',
             borderRadius: '3px',
-            cursor: (isRunning || !isEditorReady) ? 'not-allowed' : 'pointer'
+            cursor: isRunning ? 'not-allowed' : 'pointer'
           }}
         >
           {isRunning ? 'Running...' : 'Run Code'}
         </button>
 
+        <button
+          onClick={() => setOutput('')}
+          style={{ 
+            padding: '5px 10px', 
+            backgroundColor: '#ef4444',
+            color: 'white',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+        >
+          Clear Output
+        </button>
+
         <button 
-          onClick={resetTemplate}
+          onClick={requestInlineSuggest}
+          disabled={inlineLoading}
+          style={{ 
+            padding: '5px 10px', 
+            backgroundColor: inlineLoading ? '#ccc' : '#22a06b',
+            color: 'white',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: inlineLoading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {inlineLoading ? 'Suggesting…' : 'Inline Suggest'}
+        </button>
+
+        <button 
+          onClick={() => {
+            const template = getLanguageTemplate(language);
+            setCode(template);
+            if (socketRef.current) {
+              socketRef.current.emit('code-change', template);
+            }
+          }}
           style={{ 
             padding: '5px 10px', 
             backgroundColor: '#f0f0f0',
@@ -151,44 +259,37 @@ function App() {
         >
           Reset Template
         </button>
-
-        <span style={{ fontSize: '12px', color: isSynced ? 'green' : 'orange', marginLeft: '10px' }}>
-          {isSynced ? 'Synced' : 'Syncing...'}
-        </span>
       </div>
 
       <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-        {/* Monaco Code Editor */}
+        {/* Code Editor */}
         <div style={{ flex: 1 }}>
           <div style={{ marginBottom: '5px' }}>
             <label>Code Editor: </label>
+            <span style={{ fontSize: '12px', color: isSynced ? 'green' : 'orange', marginLeft: '10px' }}>
+              {isSynced ? 'Synced' : 'Syncing...'}
+            </span>
           </div>
-          <div style={{ 
-            border: '1px solid #ccc', 
-            borderRadius: '5px',
-            overflow: 'hidden'
-          }}>
-            <Editor
-              height="400px"
-              language={language}
-              value={code}
-              onChange={handleEditorChange}
-              onMount={handleEditorDidMount}
-              theme="vs-dark"
-              options={{
-                minimap: { enabled: true },
-                fontSize: 14,
-                automaticLayout: true,
-                scrollBeyondLastLine: false,
-                lineNumbers: 'on',
-                roundedSelection: false,
-                scrollbar: {
-                  vertical: 'visible',
-                  horizontal: 'visible'
-                }
-              }}
-            />
-          </div>
+          <Editor
+            height="400px"
+            language={language}
+            value={code}
+            onChange={handleCodeChange}
+            onMount={handleEditorMount}
+            theme="vs-light"
+            options={{
+              minimap: { enabled: true },
+              fontSize: 14,
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+              lineNumbers: 'on',
+              roundedSelection: false,
+              scrollbar: {
+                vertical: 'visible',
+                horizontal: 'visible'
+              }
+            }}
+          />
         </div>
 
         {/* Input/Output */}
@@ -213,12 +314,51 @@ function App() {
           </div>
 
           <div>
-            <label>Output: </label>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <label>Output: </label>
+              {lastJudge0 && (lastJudge0.stderr || lastJudge0.compile_output) && (
+                <button 
+                  onClick={async () => {
+                    try {
+                      setAiLoading(true);
+                      setAiResponse('Thinking...');
+                      const errText = (lastJudge0.stderr || '') + '\n' + (lastJudge0.compile_output || '');
+                      const payload = {
+                        prompt: `The program failed with the following error. Explain the cause and propose a minimal fix. Then show corrected code.\n\nError:\n${errText}`,
+                        language,
+                        code
+                      };
+                      const resp = await fetch('http://localhost:3001/api/ai', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                      });
+                      const data = await resp.json();
+                      setAiResponse(data.text || data.error || 'No response');
+                      setAiProvider(data.provider || '');
+                    } catch (e) {
+                      setAiResponse('AI request failed: ' + (e?.message || 'Unknown error'));
+                    } finally {
+                      setAiLoading(false);
+                    }
+                  }}
+                  style={{ 
+                    padding: '4px 8px', 
+                    backgroundColor: '#f59e0b',
+                    color: '#111827',
+                    border: '1px solid #d97706',
+                    borderRadius: '3px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Fix with AI
+                </button>
+              )}
+            </div>
             <pre style={{ 
               width: '100%',
               height: '300px',
-              backgroundColor: '#1e1e1e',
-              color: '#d4d4d4',
+              backgroundColor: '#f8f8f8',
               border: '1px solid #ddd',
               padding: '10px',
               borderRadius: '5px',
@@ -229,6 +369,111 @@ function App() {
               fontFamily: 'monospace'
             }}>
               {output}
+            </pre>
+          </div>
+
+          {/* AI Assistant */}
+          <div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'10px', flexWrap:'wrap' }}>
+              <label>AI Assistant</label>
+              <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                <span style={{ fontSize:'12px', color:'#6b7280' }}>Persona:</span>
+                <select value={persona} onChange={(e)=>setPersona(e.target.value)} style={{ padding:'4px 6px', border:'1px solid #ccc', borderRadius:'4px' }}>
+                  <option>Default</option>
+                  <option>Strict Reviewer</option>
+                  <option>Speedy Pair</option>
+                  <option>Teacher</option>
+                </select>
+                {aiProvider && <span style={{ fontSize:'12px', color:'#6b7280' }}>Provider: {aiProvider}</span>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+              <button onClick={() => setAiPrompt('Explain the selected code')} style={chipStyle}>Explain</button>
+              <button onClick={() => setAiPrompt('Find bugs in the selected code and suggest a fix')} style={chipStyle}>Find bug</button>
+              <button onClick={() => setAiPrompt('Suggest performance improvements for the selected code')} style={chipStyle}>Improve</button>
+              <button onClick={() => setAiPrompt('Refactor the selected code for readability without changing behavior')} style={chipStyle}>Refactor</button>
+              <button onClick={() => setAiPrompt('Generate unit tests for this code')} style={chipStyle}>Tests</button>
+              <button onClick={() => setAiPrompt('Write docstrings or documentation comments for this code')} style={chipStyle}>Docs</button>
+            </div>
+            <textarea 
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Ask anything about your code..."
+              style={{ 
+                width: '100%',
+                height: '70px',
+                fontFamily: 'inherit',
+                fontSize: '14px',
+                padding: '8px',
+                border: '1px solid #ccc',
+                borderRadius: '5px',
+                resize: 'vertical'
+              }}
+            />
+            <div style={{ marginTop: '8px' }}>
+              <button 
+                onClick={async () => {
+                  try {
+                    setAiLoading(true);
+                    setAiResponse('Thinking...');
+                    const selected = (() => {
+                      const ed = editorRef.current;
+                      if (!ed) return '';
+                      const sel = ed.getModel()?.getValueInRange(ed.getSelection());
+                      return sel || '';
+                    })();
+                    // Simple slash-commands
+                    let promptText = aiPrompt;
+                    if (aiPrompt.startsWith('/tests')) promptText = 'Generate unit tests for the code.';
+                    if (aiPrompt.startsWith('/doc') || aiPrompt.startsWith('/docs')) promptText = 'Write documentation comments and explain usage.';
+                    if (aiPrompt.startsWith('/explain')) promptText = 'Explain the code like a teacher with examples.';
+                    const payload = {
+                      prompt: promptText,
+                      language,
+                      persona,
+                      code: selected && selected.length > 0 ? selected : code
+                    };
+                    const resp = await fetch('http://localhost:3001/api/ai', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(payload)
+                    });
+                    const data = await resp.json();
+                    setAiResponse(data.text || data.error || 'No response');
+                    setAiProvider(data.provider || '');
+                  } catch (e) {
+                    setAiResponse('AI request failed: ' + (e?.message || 'Unknown error'));
+                  } finally {
+                    setAiLoading(false);
+                  }
+                }}
+                disabled={aiLoading}
+                style={{ 
+                  padding: '6px 12px', 
+                  backgroundColor: aiLoading ? '#ccc' : '#0b5fff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: aiLoading ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {aiLoading ? 'Asking…' : 'Ask AI'}
+              </button>
+            </div>
+            <pre style={{ 
+              width: '100%',
+              minHeight: '120px',
+              backgroundColor: '#fff',
+              border: '1px solid #ddd',
+              padding: '10px',
+              borderRadius: '5px',
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              marginTop: '10px',
+              fontSize: '14px',
+              fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif'
+            }}>
+              {aiResponse}
             </pre>
           </div>
         </div>
